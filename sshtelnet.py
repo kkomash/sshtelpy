@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import telnetlib
-import paramico
+import paramiko
+import socket
 import select
 
 from enum import Enum
@@ -66,11 +67,11 @@ class SSHTelnetConnection:
             self.tel_conn.read_until("Username:")
             if (self.debug):
                 print("Send login\n")
-            self.tel_conn.write(user + "\n")
+            self.tel_conn.write(self.user + "\n")
             self.tel_conn.read_until("Password:")
             if (self.debug):
                 print("Send password\n")
-            tn.write(passwd + "\n")
+            self.tel_conn.write(self.passwd + "\n")
             self.con_type = ConnType.c_telnet
         except EOFError as e:
             self.con_type = ConnType.c_fail
@@ -93,17 +94,17 @@ class SSHTelnetConnection:
                                     look_for_keys=False, allow_agent=False)
             self.ssh_conn = self.ssh_conn_t.invoke_shell()
             self.con_type = ConnType.c_ssh
-        except BadHostKeyException as e:
+        except paramiko.BadHostKeyException as e:
             self.con_type = ConnType.c_fail
             print("SSH error on {0}: {1}\n".format(self.host, e.strerror))
             self.log_to("SSH Error: {0} ...\n".format(e.strerror))
-        except AuthenticationException as e:
+        except paramiko.AuthenticationException as e:
             # SSH login authentication failed
             self.con_type = ConnType.c_fail
             print("SSH login error on {0}: {1}\n".
                   format(self.host, e.strerror))
             self.log_to("SSH Login Error: {0} ...\n".format(e.strerror))
-        except SSHException as e:
+        except paramiko.SSHException as e:
             self.con_type = ConnType.c_fail
             print("SSH error on {0}: {1}\n".format(self.host, e.strerror))
             self.log_to("SSH Error: {0} ...\n".format(e.strerror))
@@ -152,19 +153,36 @@ class SSHTelnetConnection:
         '''
         if (self.con_type == ConnType.c_telnet):
             # try:
-            return tel_conn.read_until(string, timeout)
+            return self.tel_conn.read_until(string, timeout)
             # except socket.error as e:
             #     print("Socket error on {0}: {1}\n".
             #           format(self.host, e.strerror))
             #     self.log_to("Socket error: {0}\n".format(e.strerror))
         elif (self.con_type == ConnType.c_ssh):
             # try:
-            dList = ""       # buffer to save recieved data
-            l = len(string)  # length of search string
+            ssh_conn = self.ssh_conn
+            dList = ""         # buffer to save recieved data
+            # s_l = len(string)  # length of search string
             # Lets wait for some data from socket
-            while self.ssh_conn
-            while string not in "".join(dList):
-                dList.append(ssh_conn.recv(1))
+            while ssh_conn:
+                if timeout is not None:
+                    r_l, w_l, ex_l = select.select(([ssh_conn], [], []),
+                                                   timeout)
+                else:
+                    r_l, w_l, ex_l = select.select(([ssh_conn], [], []))
+                if ssh_conn in r_l:
+                    # Well, we have something to read
+                    while string not in "".join(dList):
+                        char = ssh_conn.recv(1)
+                        if char:
+                            # add recieved data to list
+                            dList.append(char)
+                        else:
+                            # nothing has been read
+                            break
+                else:
+                    # Hmm, list of readable sockets has not our socket
+                    break
             return "".join(dList)
             # except socket.error as e:
             # print("Socket error on {0}: {1}\n".
@@ -177,16 +195,16 @@ class SSHTelnetConnection:
         '''
         if (self.con_type == ConnType.c_telnet):
             try:
-                tel_conn.write("terminal length 0\n")
-                tel_conn.read_until(self.host + "#")
+                self.tel_conn.write("terminal length 0\n")
+                self.read_until(self.host + "#", 30.0)
             except socket.error as e:
                 print("Socket error on {0}: {1}\n".
                       format(self.host, e.strerror))
                 self.log_to("Socket error: {0}\n".format(e.strerror))
         elif (self.con_type == ConnType.c_ssh):
             try:
-                ssh_conn.send("terminal length 0\n")
-                !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                self.ssh_conn.send("terminal length 0\n")
+                self.read_until(self.host + "#", 30.0)
             except socket.error as e:
                 print("Socket error on {0}: {1}\n".
                       format(self.host, e.strerror))
@@ -198,14 +216,14 @@ class SSHTelnetConnection:
         '''
         if (self.con_type == ConnType.c_telnet):
             try:
-                tel_conn.write(string)
+                self.tel_conn.write(string)
             except socket.error as e:
                 print("Socket error on {0}: {1}\n".
                       format(self.host, e.strerror))
                 self.log_to("Socket error: {0}\n".format(e.strerror))
         elif (self.con_type == ConnType.c_ssh):
             try:
-                ssh_conn.send(string)
+                self.ssh_conn.send(string)
             except socket.error as e:
                 print("Socket error on {0}: {1}\n".
                       format(self.host, e.strerror))
@@ -217,7 +235,7 @@ class SSHTelnetConnection:
         '''
         if (self.con_type == ConnType.c_telnet):
             try:
-                tel_conn.close()
+                self.tel_conn.close()
                 self.con_type = ConnType.c_none
             except socket.error as e:
                 print("Socket error on {0}: {1}\n".
@@ -225,7 +243,7 @@ class SSHTelnetConnection:
                 self.log_to("Socket error: {0}\n".format(e.strerror))
         elif (self.con_type == ConnType.c_ssh):
             try:
-                ssh_conn_t.close()
+                self.ssh_conn_t.close()
                 self.con_type = ConnType.c_none
             except socket.error as e:
                 print("Socket error on {0}: {1}\n".

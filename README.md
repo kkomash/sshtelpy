@@ -1,2 +1,5 @@
 # sshtelpy
-Python wrapper for Paramiko and Telnetlib
+
+Python library which wraps Paramiko and Telnetlib libraries.
+
+
